@@ -1,0 +1,129 @@
+/*
+ * copyright 2012, gash
+ * 
+ * Gash licenses this file to you under the Apache License,
+ * version 2.0 (the "License"); you may not use this file except in compliance
+ * with the License. You may obtain a copy of the License at:
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+ * License for the specific language governing permissions and limitations
+ * under the License.
+ */
+package snapchatproto.servers.management;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import snapchatproto.core.RaftMgmt.AcknowledgementPayload.ResponseAction;
+import snapchatproto.core.RaftMgmt.Network.NetworkAction;
+import snapchatproto.core.RaftMgmt.RaftMessagePayload.RaftAction;
+import snapchatproto.core.RaftMgmt.ServerCommunicationMessage;
+import snapchatproto.servers.management.ManagementQueue.ManagementQueueEntry;
+import snapchatproto.servers.managers.HeartbeatManager;
+import snapchatproto.servers.managers.NetworkManager;
+import snapchatproto.servers.managers.RaftElectionManager;
+
+/**
+ * The inbound management worker is the cortex for all work related to the
+ * Health and Status (H&S) of the node.
+ * 
+ * Example work includes processing job bidding, elections, network connectivity
+ * building. An instance of this worker is blocked on the socket listening for
+ * events. If you want to approximate a timer, executes on a consistent interval
+ * (e.g., polling, spin-lock), you will have to implement a thread that injects
+ * events into this worker's queue.
+ * 
+ * HB requests to this node are NOT processed here. Nodes making a request to
+ * receive heartbeats are in essence requesting to establish an edge (comm)
+ * between two nodes. On failure, the connecter must initiate a reconnect - to
+ * produce the heartbeatMgr.
+ * 
+ * On loss of connection: When a connection is lost, the emitter will not try to
+ * establish the connection. The edge associated with the lost node is marked
+ * failed and all outbound (enqueued) messages are dropped (TBD as we could
+ * delay this action to allow the node to detect and re-establish the
+ * connection).
+ * 
+ * Connections are bi-directional (reads and writes) at this time.
+ * 
+ * @author gash
+ * 
+ */
+public class InboundMgmtWorker extends Thread {
+	protected static Logger logger = LoggerFactory.getLogger("management");
+
+	int workerId;
+	boolean forever = true;
+
+	public InboundMgmtWorker(ThreadGroup tgrp, int workerId) {
+		super(tgrp, "inbound-mgmt-" + workerId);
+		this.workerId = workerId;
+
+		if (ManagementQueue.outbound == null)
+			throw new RuntimeException("connection worker detected null queue");
+	}
+
+	@Override
+	public void run() {
+		//	boolean noHeartBeatForLongFromLeader;
+		//	int firstTime = 1;
+
+		while (true) {
+			if (!forever && ManagementQueue.inbound.size() == 0)
+				break;
+
+			/*noHeartBeatForLongFromLeader = (System.currentTimeMillis() - NodeDataManager.getInstance().getNodeData().getLastBeatReceivedFromLeader() > 10000);
+			if(ManagementQueue.inbound.size() == 0 && noHeartBeatForLongFromLeader && firstTime!=1){
+				System.out.println("Stuck here");
+				firstTime--;
+				ElectionManager.getInstance().startElection();
+
+			}*/
+			try {
+				Thread.sleep(1000);
+			} catch (InterruptedException e1) {
+				// TODO Auto-generated catch block
+				e1.printStackTrace();
+			}
+			try {
+				// block until a message is enqueued
+
+				ManagementQueueEntry msg = ManagementQueue.inbound.take();
+
+				if (logger.isDebugEnabled())
+					logger.debug("Inbound management message received");
+
+
+				ServerCommunicationMessage mgmt = (ServerCommunicationMessage) msg.req;
+				if (mgmt.getRaftMessagePayload().getAction() == RaftAction.HEARTBEAT) {
+
+					HeartbeatManager.getInstance().processRequest(mgmt);
+
+				} else if (mgmt.getGraph().getAction() == NetworkAction.NODEJOIN || mgmt.getGraph().getAction() == NetworkAction.NODEJOINACK) {
+					System.out.println("hasGraph ---------------> "+mgmt.getGraph().getAction());
+					NetworkManager.getInstance().processRequest(mgmt, msg.channel);
+				}else if(mgmt.getRaftMessagePayload().getAction() == RaftAction.APPEND){
+					//Append methods..
+				}
+				else
+				{
+					RaftElectionManager.getInstance().processRequest(mgmt);
+
+				}
+			} catch (InterruptedException ie) {
+				break;
+			} catch (Exception e) {
+				logger.error("Unexpected processing failure, halting worker.", e);
+				break;
+			}
+		}
+
+		if (!forever) {
+			logger.info("connection queue closing");
+		}
+	}
+}

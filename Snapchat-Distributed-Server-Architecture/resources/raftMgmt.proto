@@ -1,0 +1,92 @@
+option optimize_for = SPEED;
+option java_package = "snapchatproto.core";
+
+message RaftHeader {
+    optional int32 originatorNodeId = 1;
+    optional int64 time = 2;
+    optional int32 toNode = 3;
+}
+
+message Operation {
+   optional string cmd = 1;
+   optional string fileName = 2;
+}
+
+message LogEntry {
+   optional int32 term = 1;
+   optional int32 logIndex = 2;
+   optional Operation operation = 3;
+}
+
+message LogList {
+   repeated LogEntry logEntry = 1;
+}
+
+message RaftMessagePayload {
+   optional int32 messageId = 1;
+   optional int32 term = 2;
+   optional int32 index =11; 
+   optional LogList logList = 3;
+
+   optional RaftAction action = 5;
+
+   optional int32 previousLogIndex = 6;
+   optional int32 previousTerm = 7;
+   
+   optional int32 leaderId = 8;
+
+   enum RaftAction {
+   	UNDEFINED = 1;
+	HEARTBEAT = 2;
+	REQUESTVOTE = 3;
+	LEADER = 4;
+	APPEND = 5;
+	COMMIT = 6;
+	WHOISTHELEADER = 7;
+	THELEADERIS = 8;
+	CASTVOTE = 9;
+
+   }
+}
+
+message Network {
+    optional int32 from_node_id = 1;
+    optional int32 to_node_id = 2;
+    optional NetworkAction action = 3;
+
+    enum NetworkAction {
+       UNDEFINED = 1;
+       NODEJOIN = 2;
+       NODEJOINACK = 5;
+       NODELEAVE = 3;
+       NODEDEAD = 4;
+       CREATEMAP = 55;
+       ANNOUNCE = 56;
+       SHUTDOWN = 999;
+   }
+}
+
+
+message AcknowledgementPayload {
+   optional ResponseAction action = 1;
+   optional string response = 2;
+   optional int32 term = 3;
+
+   enum ResponseAction {
+   	UNDEFINED = 1;
+	CASTVOTE = 2;
+	HEARBEAT = 3;
+	APPENDSTATUS = 4;
+	OTHER = 6;
+	LEADER = 5;
+	ACK_APPEND =7;
+   }
+}
+
+message ServerCommunicationMessage {
+   optional RaftHeader raftHeader = 1;
+   optional RaftMessagePayload raftMessagePayload = 2;
+   optional AcknowledgementPayload acknowledgementPayload = 3;
+   optional Network graph = 4;
+
+}
